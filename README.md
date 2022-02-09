@@ -21,3 +21,7 @@ BOM:
 **0.91" 128x32 OLED I2C Display**
   
     https://www.laskakit.cz/oled-displej-bily-128x32-0-91--i2c/
+
+**3D printed front cover with Display frame**
+
+    https://www.tinkercad.com/things/60YkzGBh2Pk
