@@ -1,7 +1,7 @@
 # IKEA-Vindriktning
 ESPhome code for IKEA Vindriktning Air Quality Sensor
 
-This code is a beta version
+This code is an alpha version...
 
 BOM:
 
