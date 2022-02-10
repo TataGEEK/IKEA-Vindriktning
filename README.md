@@ -1,6 +1,8 @@
 # IKEA-Vindriktning
 ESPhome code for IKEA Vindriktning Air Quality Sensor
 
+This YAML code is based on https://github.com/koenvervloesem/ESPHome-Air-Quality-Monitor
+
 This code is an alpha version...
 
 BOM:
