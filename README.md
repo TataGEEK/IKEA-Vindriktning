@@ -27,3 +27,4 @@ BOM:
 **3D printed front cover with Display frame**
 
     https://www.tinkercad.com/things/60YkzGBh2Pk
+    https://www.prusaprinters.org/prints/132619
