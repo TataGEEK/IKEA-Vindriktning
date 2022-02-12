@@ -20,7 +20,7 @@ substitutions:
 globals:
    - id: led_brightness
      type: int
-     restore_value: yes
+     restore_value: no
      initial_value: '50'
 
 esphome:
@@ -32,7 +32,6 @@ esp32:
 
 # Enable logging
 logger:
-  level: VERY_VERBOSE
 
 # Enable Home Assistant API
 api:
@@ -61,8 +60,6 @@ binary_sensor:
     on_release:
       then:
         - switch.turn_off: stop_semafor
-
-
 
 light:
   - platform: fastled_clockless
@@ -192,21 +189,14 @@ uart:
   rx_pin: ${pm1006_pin_rx}
   tx_pin: ${pm1006_pin_tx}
   baud_rate: 9600
-  debug:
-    direction: BOTH
-    dummy_receiver: false
-    after:
-      delimiter: "\n"
-    sequence:
-      - lambda: UARTDebug::log_string(direction, bytes);
-  
+
 sensor:
   - platform: scd4x
     i2c_id: bus_a
     id: co2_sensor
     address: 0x62
     update_interval: ${SCD4x_update_interval}
-    automatic_self_calibration: false
+    automatic_self_calibration: true
     co2:
       name: "${node_name} CO₂"
       id: co2_value
@@ -308,10 +298,35 @@ number:
     on_value:
       then:
         - lambda: |-
-            id(led_brightness) = id(LED_brightness).state;
+            if (id(LED_brightness).state) {
+              id(led_brightness) = id(LED_brightness).state;
+            } else {
+              id(led_brightness) = 50;
+            }
         - script.execute: update_aqi
+  - platform: template
+    name: "${node_name} kontrast displeje"
+    id: DISPLAY_contrast
+    icon: "mdi:contrast-circle"
+    disabled_by_default: true
+    entity_category: config
+    min_value: 0
+    max_value: 100
+    step: 1
+    optimistic: true
+    on_value:
+      then:
+        lambda: |-
+          if (id(DISPLAY_contrast).state) {
+            id(oled_display).set_contrast(x / 100);
+          } else {
+            id(oled_display).set_contrast(0.5);
+          }
+    
+    
 display:
   - platform: ssd1306_i2c
+    id: oled_display
     model: "SSD1306 128x32"
     #address: 0x3C
     lambda: |-
