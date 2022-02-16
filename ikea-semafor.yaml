@@ -16,7 +16,7 @@ substitutions:
   pm1006_pin_tx: GPIO17
   pm1006_update_interval: 5s
   sensor_fan: GPIO12
-
+  
 esphome:
   name: ikea-semafor
 
@@ -44,7 +44,6 @@ wifi:
 
 captive_portal:
 
-
 light:
   - platform: fastled_clockless
     chipset: WS2812B
@@ -59,42 +58,27 @@ light:
 
 
 script:
-  - id: read_pm2_5
+  - id: evaluate_air_quality
     then:
+      - sensor.template.publish:
+          id: co2_value
+          state: !lambda return id(co2_value).state;
+      - sensor.template.publish:
+          id: temp_value
+          state: !lambda return id(temp_value).state;
+      - sensor.template.publish:
+          id: humi_value
+          state: !lambda return id(humi_value).state;
       - switch.turn_on: fan
       - delay: 5s
       - sensor.template.publish:
           id: pm2_5_value
           state: !lambda return id(pm2_5_value).state;
-      - delay: 5s
       - switch.turn_off: fan
-  - id: show_bad
-    then:
-      - light.turn_on:
-          id: led_rgb
-          brightness: !lambda |-
-            return id(brightness).state / 100.0;
-          red: 100%
-          green: 0%
-          blue: 0%
-  - id: show_acceptable
-    then:
-      - light.turn_on:
-          id: led_rgb
-          brightness: !lambda |-
-            return id(brightness).state / 100.0;
-          red: 100%
-          green: 100%
-          blue: 0%
-  - id: show_good
-    then:
-      - light.turn_on:
-          id: led_rgb
-          brightness: !lambda |-
-            return id(brightness).state / 100.0;
-          red: 0%
-          green: 100%
-          blue: 0%
+      - script.execute: update_aqi
+      - delay: 1min
+      - deep_sleep.enter: deep_sleep_1
+           
   - id: update_aqi
     mode: restart
     then:
@@ -112,7 +96,6 @@ script:
             - text_sensor.template.publish:
                 id: aqi
                 state: ${aqi_message_bad}
-            - script.execute: show_bad
           else:
             # Acceptable if at least one of the sensor values is acceptable
             - if:
@@ -128,20 +111,13 @@ script:
                   - text_sensor.template.publish:
                       id: aqi
                       state: ${aqi_message_acceptable}
-                  - script.execute: show_acceptable
                 else:
                   # Otherwise good (all of the sensor values are good)
                   - text_sensor.template.publish:
                       id: aqi
                       state: ${aqi_message_good}
-                  - script.execute: show_good
                   
 switch:
-  - platform: template
-    name: "${node_name} CO₂ semafor"
-    id: co2_semafor
-    entity_category: config
-    optimistic: true
   - platform: gpio
     pin: $sensor_fan
     id: fan
@@ -173,9 +149,6 @@ sensor:
     co2:
       name: "${node_name} CO₂"
       id: co2_value
-      on_value:
-        then:
-          - script.execute: update_aqi
     temperature:
       name: "${node_name} teplota"
       id: temp_value
@@ -293,7 +266,7 @@ number:
 interval:
   - interval: 1min
     then:
-      - script.execute: read_pm2_5
+      - script.execute: evaluate_air_quality
     
 display:
   - platform: ssd1306_i2c
@@ -306,3 +279,26 @@ display:
       it.printf(0, 16, id(font1), "%.0f µg/m³", id(pm2_5_value).state);
       it.printf(126, 0, id(font1), TextAlign::TOP_RIGHT, "%.0f °C", id(temp_value).state);
       it.printf(126, 16, id(font1), TextAlign::TOP_RIGHT, "%.0f %%", id(humi_value).state);
+  - platform: addressable_light
+    id: led_matrix_display
+    addressable_light_id: led_rgb
+    width: 1
+    height: 3
+    rotation: 180°
+    update_interval: 16ms
+    lambda: |-
+          Color red = Color(0xFF0000);
+          Color green = Color(0x00FF00);
+          Color yellow = Color(0xFFFF00);
+          if (id(aqi).state == "Bad") {
+            it.rectangle(0, 0, 1, 1, red);
+          } else if (id(aqi).state == "Acceptable") {
+            it.rectangle(0, 1, 1, 1, yellow);
+          } else if (id(aqi).state == "Good") {
+            it.rectangle(0, 2, 1, 1, green);
+          }
+
+deep_sleep:
+  id: deep_sleep_1
+  run_duration: 1min
+  sleep_duration: 1min
