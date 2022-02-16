@@ -17,12 +17,6 @@ substitutions:
   pm1006_update_interval: 5s
   sensor_fan: GPIO12
 
-globals:
-   - id: led_brightness
-     type: int
-     restore_value: no
-     initial_value: '50'
-
 esphome:
   name: ikea-semafor
 
@@ -50,16 +44,6 @@ wifi:
 
 captive_portal:
 
-binary_sensor:
-  - platform: template
-    name: "${node_name} CO₂ semafor"
-    id: co2_semafor
-    on_press:
-      then:
-        - switch.turn_on: start_semafor
-    on_release:
-      then:
-        - switch.turn_off: stop_semafor
 
 light:
   - platform: fastled_clockless
@@ -71,15 +55,25 @@ light:
     rgb_order: GRB
     name: "Signalizační RGB LED"
     id: led_rgb
+    entity_category: diagnostic
 
 
 script:
+  - id: read_pm2_5
+    then:
+      - switch.turn_on: fan
+      - delay: 5s
+      - sensor.template.publish:
+          id: pm2_5_value
+          state: !lambda return id(pm2_5_value).state;
+      - delay: 5s
+      - switch.turn_off: fan
   - id: show_bad
     then:
       - light.turn_on:
           id: led_rgb
           brightness: !lambda |-
-            return id(led_brightness) / 100.0;
+            return id(brightness).state / 100.0;
           red: 100%
           green: 0%
           blue: 0%
@@ -88,7 +82,7 @@ script:
       - light.turn_on:
           id: led_rgb
           brightness: !lambda |-
-            return id(led_brightness) / 100.0;
+            return id(brightness).state / 100.0;
           red: 100%
           green: 100%
           blue: 0%
@@ -97,7 +91,7 @@ script:
       - light.turn_on:
           id: led_rgb
           brightness: !lambda |-
-            return id(led_brightness) / 100.0;
+            return id(brightness).state / 100.0;
           red: 0%
           green: 100%
           blue: 0%
@@ -144,38 +138,17 @@ script:
                   
 switch:
   - platform: template
-    id: start_semafor
-    disabled_by_default: true
+    name: "${node_name} CO₂ semafor"
+    id: co2_semafor
     entity_category: config
     optimistic: true
-    on_turn_on:
-      then:
-        - light.turn_on:
-            id: led_rgb
-            brightness: 10%
-            red: 100%
-            green: 0%
-            blue: 100%
-  - platform: template
-    id: stop_semafor
-    optimistic: true
-    on_turn_on:
-      then:
-        - light.turn_off:
-            id: led_rgb
-    on_turn_off:
-      then:
-        - light.turn_on:
-            id: led_rgb
-            brightness: 10%
-            red: 0%
-            green: 0%
-            blue: 100%
   - platform: gpio
     pin: $sensor_fan
-    name: "Ventilátor"
     id: fan
+    name: "${node_name} ventilátor"
+    internal: true
     icon: mdi:fan
+    entity_category: diagnostic
   - platform: restart
     name: "${node_name} restart"
   
@@ -287,7 +260,7 @@ font:
 number:
   - platform: template
     name: "${node_name} intenzita jasu LED"
-    id: LED_brightness
+    id: brightness
     icon: "mdi:BrightnessPercent"
     disabled_by_default: true
     entity_category: config
@@ -297,12 +270,6 @@ number:
     optimistic: true
     on_value:
       then:
-        - lambda: |-
-            if (id(LED_brightness).state) {
-              id(led_brightness) = id(LED_brightness).state;
-            } else {
-              id(led_brightness) = 50;
-            }
         - script.execute: update_aqi
   - platform: template
     name: "${node_name} kontrast displeje"
@@ -322,7 +289,11 @@ number:
           } else {
             id(oled_display).set_contrast(0.5);
           }
-    
+
+interval:
+  - interval: 1min
+    then:
+      - script.execute: read_pm2_5
     
 display:
   - platform: ssd1306_i2c
@@ -331,11 +302,7 @@ display:
     #address: 0x3C
     lambda: |-
       it.printf(0, 0, id(font1), "%.0f ppm", id(co2_value).state);
+      //it.printf(0, 0, id(font1), "%.2f", id(brightness).state);
       it.printf(0, 16, id(font1), "%.0f µg/m³", id(pm2_5_value).state);
       it.printf(126, 0, id(font1), TextAlign::TOP_RIGHT, "%.0f °C", id(temp_value).state);
       it.printf(126, 16, id(font1), TextAlign::TOP_RIGHT, "%.0f %%", id(humi_value).state);
-      
-external_components:
-  - source: github://pr#2214
-    components:
-      - pm1006
