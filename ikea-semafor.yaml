@@ -5,7 +5,9 @@ substitutions:
   I2C_SDA: GPIO21
   SCD4x_update_interval: 60s
   ADC_update_interval: 60s
+  aqi_co2_ideal_good: "600"
   aqi_co2_max_good: "800"
+  aqi_co2_ideal_acceptable: "1000"
   aqi_co2_max_acceptable: "1200"
   aqi_pm2_5_avg_24h_max_good: "12"
   aqi_pm2_5_avg_24h_max_acceptable: "25"  # WHO 2006
@@ -16,19 +18,26 @@ substitutions:
   pm1006_pin_tx: GPIO17
   pm1006_update_interval: 5s
   sensor_fan: GPIO12
-  
+  temp_calibration: "-4"
+
 esphome:
   name: ikea-semafor
-
+  on_boot:
+    priority: -10
+    then:
+      - light.turn_on: 
+          id: led_rgb
+          brightness: 30%
 esp32:
   board: esp32dev
-
 
 # Enable logging
 logger:
 
 # Enable Home Assistant API
 api:
+  encryption:
+    key: "type your own"
 
 ota:
   password: "8b73f0e42cc0038d8a5c1abecb2de6dd"
@@ -39,46 +48,80 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Ikea-Semafor Fallback Hotspot"
+    ssid: "${node_name} Fallback Hotspot"
     password: "jz9Dc4gerk7s"
 
-captive_portal:
-
 light:
-  - platform: fastled_clockless
-    chipset: WS2812B
+  - id: led_rgb
+    internal: False
+    platform: neopixelbus
+    type: GRB
+    variant: WS2812X
     pin: $GPIO_RGB_LED
-    num_leds: 3
-    restore_mode: ALWAYS_ON
-    #default_transition_length: 5s
-    rgb_order: GRB
-    name: "Signalizační RGB LED"
-    id: led_rgb
-    entity_category: diagnostic
+    num_leds: "3"
+    method: ESP32_I2S_1
+    name: "RGB LED indicator"
+    effects:
+      - addressable_lambda:
+          name: "AQI Level (step change)"
+          update_interval: 25ms
+          lambda: |-  
+            if (id(aqi).state == "Bad") {
+              it.all() = ESPColor(255,0,0); //red color
+            } else if (id(aqi).state == "Acceptable") {
+              it.all() = ESPColor(255,255,0); 
+            } else if (id(aqi).state == "Good") {
+              it.all() = ESPColor(0,255,0); //green color
+            } else {
+              it.all() = ESPColor(255,255,255); //white color
+            }
+      - addressable_lambda:
+          name: "AQI Level (smooth change)"
+          update_interval: 25ms
+          lambda: |-
+            
+            static int red = 0;
+            static int green = 0;
 
+            if (id(co2_value).state <= ${aqi_co2_ideal_good}) {
+              red = 0;
+              green = 255;
+            } else if ((id(co2_value).state > ${aqi_co2_ideal_good}) && (id(co2_value).state <= 1000)) {
+              red = ceil(((id(co2_value).state) - ${aqi_co2_ideal_good}) * (255.0/(${aqi_co2_ideal_acceptable} - ${aqi_co2_ideal_good})));
+              green = 255;
+              
+            } else if ((id(co2_value).state > 1000) && (id(co2_value).state < 1200)) {
+              red = 255;
+              green = 255 - ceil((id(co2_value).state - 1000) * (255.0/200));
+
+            } else if (id(co2_value).state >= 1200) {
+              red = 255;
+              green = 0;
+            }
+          
+            it.all() = ESPColor(red,green,0);
 
 script:
   - id: evaluate_air_quality
     then:
-      - sensor.template.publish:
-          id: co2_value
-          state: !lambda return id(co2_value).state;
-      - sensor.template.publish:
-          id: temp_value
-          state: !lambda return id(temp_value).state;
-      - sensor.template.publish:
-          id: humi_value
-          state: !lambda return id(humi_value).state;
+      - logger.log: "Fan is ON"
       - switch.turn_on: fan
-      - delay: 5s
+      - logger.log: "Waiting 10s"
+      - delay: 10s
       - sensor.template.publish:
           id: pm2_5_value
           state: !lambda return id(pm2_5_value).state;
+      - logger.log: "Fan is OFF"
       - switch.turn_off: fan
-      - script.execute: update_aqi
-      - delay: 1min
-      - deep_sleep.enter: deep_sleep_1
-           
+      - if:
+          condition:
+            - lambda: 'return isnan(id(co2_value).state);'
+          then:
+            - logger.log: "Waiting for CO2 sensor"
+          else:
+            - logger.log: "CO2 sensor is ready"
+            - script.execute: update_aqi
+
   - id: update_aqi
     mode: restart
     then:
@@ -86,9 +129,7 @@ script:
       - if:
           condition:
             or:
-              - sensor.in_range:
-                  id: co2_value
-                  above: ${aqi_co2_max_acceptable}
+              - lambda: 'return (id(co2_value).state > ${aqi_co2_max_acceptable});'
               - sensor.in_range:
                   id: pm2_5_avg_24h
                   above: ${aqi_pm2_5_avg_24h_max_acceptable}
@@ -101,9 +142,7 @@ script:
             - if:
                 condition:
                   or:
-                    - sensor.in_range:
-                        id: co2_value
-                        above: ${aqi_co2_max_good}
+                    - lambda: 'return (id(co2_value).state > ${aqi_co2_max_good});'
                     - sensor.in_range:
                         id: pm2_5_avg_24h
                         above: ${aqi_pm2_5_avg_24h_max_good}
@@ -116,7 +155,7 @@ script:
                   - text_sensor.template.publish:
                       id: aqi
                       state: ${aqi_message_good}
-                  
+
 switch:
   - platform: gpio
     pin: $sensor_fan
@@ -124,7 +163,7 @@ switch:
     name: "${node_name} ventilátor"
     internal: true
     icon: mdi:fan
-    entity_category: diagnostic
+    entity_category: config
   - platform: restart
     name: "${node_name} restart"
   
@@ -152,14 +191,18 @@ sensor:
     temperature:
       name: "${node_name} teplota"
       id: temp_value
+      filters:
+        offset: ${temp_calibration}
+
     humidity:
       name: "${node_name} vlhkost"
       id: humi_value
   - platform: pm1006
     pm_2_5:
-      id: pm2_5_value
       name: "${node_name} PM2.5"
-    update_interval: 20s
+      id: pm2_5_value
+      internal: false
+    update_interval: 2min
   - platform: template
     name: "${node_name} PM2.5 24h average"
     id: pm2_5_avg_24h
@@ -179,7 +222,8 @@ sensor:
     name: "${node_name} WiFi Signal"
     entity_category: diagnostic
     disabled_by_default: true
-    
+
+
 # A textual presentation of the AQI: good, acceptable, bad
 text_sensor:
   - platform: template
@@ -232,24 +276,9 @@ font:
 
 number:
   - platform: template
-    name: "${node_name} intenzita jasu LED"
-    id: brightness
-    icon: "mdi:BrightnessPercent"
-    disabled_by_default: true
-    entity_category: config
-    min_value: 0
-    max_value: 100
-    step: 1
-    optimistic: true
-    on_value:
-      then:
-        - script.execute: update_aqi
-  - platform: template
     name: "${node_name} kontrast displeje"
     id: DISPLAY_contrast
     icon: "mdi:contrast-circle"
-    disabled_by_default: true
-    entity_category: config
     min_value: 0
     max_value: 100
     step: 1
@@ -272,33 +301,8 @@ display:
   - platform: ssd1306_i2c
     id: oled_display
     model: "SSD1306 128x32"
-    #address: 0x3C
     lambda: |-
-      it.printf(0, 0, id(font1), "%.0f ppm", id(co2_value).state);
-      //it.printf(0, 0, id(font1), "%.2f", id(brightness).state);
-      it.printf(0, 16, id(font1), "%.0f µg/m³", id(pm2_5_value).state);
-      it.printf(126, 0, id(font1), TextAlign::TOP_RIGHT, "%.0f °C", id(temp_value).state);
-      it.printf(126, 16, id(font1), TextAlign::TOP_RIGHT, "%.0f %%", id(humi_value).state);
-  - platform: addressable_light
-    id: led_matrix_display
-    addressable_light_id: led_rgb
-    width: 1
-    height: 3
-    rotation: 180°
-    update_interval: 16ms
-    lambda: |-
-          Color red = Color(0xFF0000);
-          Color green = Color(0x00FF00);
-          Color yellow = Color(0xFFFF00);
-          if (id(aqi).state == "Bad") {
-            it.rectangle(0, 0, 1, 1, red);
-          } else if (id(aqi).state == "Acceptable") {
-            it.rectangle(0, 1, 1, 1, yellow);
-          } else if (id(aqi).state == "Good") {
-            it.rectangle(0, 2, 1, 1, green);
-          }
-
-deep_sleep:
-  id: deep_sleep_1
-  run_duration: 1min
-  sleep_duration: 1min
+        it.printf(0, 0, id(font1), "%.0f ppm", id(co2_value).state);
+        it.printf(0, 16, id(font1), "%.0f µg/m³", id(pm2_5_value).state);        
+        it.printf(126, 0, id(font1), TextAlign::TOP_RIGHT, "%.0f °C", id(temp_value).state);
+        it.printf(126, 16, id(font1), TextAlign::TOP_RIGHT, "%.0f %%", id(humi_value).state);
