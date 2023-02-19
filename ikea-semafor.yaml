@@ -51,6 +51,9 @@ wifi:
     ssid: "${node_name} Fallback Hotspot"
     password: "jz9Dc4gerk7s"
 
+bluetooth_proxy:
+  active: true
+
 light:
   - id: led_rgb
     internal: False
