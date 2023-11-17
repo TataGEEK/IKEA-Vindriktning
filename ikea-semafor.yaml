@@ -28,6 +28,7 @@ esphome:
       - light.turn_on: 
           id: led_rgb
           brightness: 30%
+          effect: "AQI Level (smooth change)"
 esp32:
   board: esp32dev
 
@@ -40,7 +41,7 @@ api:
     key: "type your own"
 
 ota:
-  password: "8b73f0e42cc0038d8a5c1abecb2de6dd"
+  password: "type your own"
 
 wifi:
   ssid: !secret wifi_ssid
@@ -194,7 +195,13 @@ sensor:
     temperature:
       name: "${node_name} teplota"
       id: temp_value
+      #on_value:
+        #then:
+        #- sensor.template.publish:
+            #id: temp_value
+            #state: !lambda return id(temp_value).state;
       filters:
+        #- lambda: return x + id(temp_calibration).state;
         offset: ${temp_calibration}
 
     humidity:
@@ -294,6 +301,20 @@ number:
           } else {
             id(oled_display).set_contrast(0.5);
           }
+  #- platform: template
+    #name: "Kalibrace teploty"
+    #id: temp_calibration
+    #initial_value: 0.0
+    #min_value: -5.0
+    #max_value: 5.0
+    #step: 0.1
+    #optimistic: true
+    #entity_category: config
+    #on_value:
+      #then:
+        #- sensor.template.publish:
+            #id: temp_value
+            #state: !lambda return id(temp_value).state;      
 
 interval:
   - interval: 1min
@@ -305,7 +326,12 @@ display:
     id: oled_display
     model: "SSD1306 128x32"
     lambda: |-
+        //static int kalibrovana_teplota = 0;
+        
+        //kalibrovana_teplota = temp_calibration + id(temp_value).state)
+
         it.printf(0, 0, id(font1), "%.0f ppm", id(co2_value).state);
         it.printf(0, 16, id(font1), "%.0f µg/m³", id(pm2_5_value).state);        
         it.printf(126, 0, id(font1), TextAlign::TOP_RIGHT, "%.0f °C", id(temp_value).state);
+        //it.printf(126, 0, id(font1), TextAlign::TOP_RIGHT, "%.0f °C", kalibrovana_teplota);
         it.printf(126, 16, id(font1), TextAlign::TOP_RIGHT, "%.0f %%", id(humi_value).state);
