@@ -22,6 +22,7 @@ substitutions:
 
 esphome:
   name: ikea-semafor
+  compile_process_limit: 1
   on_boot:
     priority: -10
     then:
