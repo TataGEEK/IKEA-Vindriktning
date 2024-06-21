@@ -42,7 +42,8 @@ api:
     key: "type your own"
 
 ota:
-  password: "type your own"
+  - platform: esphome
+    password: "type your own"
 
 wifi:
   ssid: !secret wifi_ssid
